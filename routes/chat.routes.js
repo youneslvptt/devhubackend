@@ -1,21 +1,22 @@
+// routes/chat.routes.js
 const express = require("express");
 const router = express.Router();
-const Message = require("../models/Message");
 
+const {
+  createChannel,
+  getChannels,
+  getChannelMessages,
+  addMemberToChannel   // <-- imported
+} = require("../controllers/chat.controller");
 
-router.get("/:channelId", async (req, res) => {
-  try {
-    const messages = await Message.find({
-      channel: req.params.channelId
-    })
-    .populate("sender", "name email")
-    .sort({ createdAt: 1 });
+const protect = require("../middleware/auth.middleware");
 
-    res.json(messages);
-  } catch (error) {
-    console.log(error);
-    res.status(500).json({ message: error.message });
-  }
-});
+// Existing routes
+router.post("/channel", protect, createChannel);
+router.get("/channels", protect, getChannels);
+router.get("/messages/:channelId", protect, getChannelMessages);
+
+// ✅ NEW: Add a member to a channel (admin only)
+router.post("/channel/add-member", protect, addMemberToChannel);
 
 module.exports = router;

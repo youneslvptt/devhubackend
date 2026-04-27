@@ -6,34 +6,44 @@ const userSchema = new mongoose.Schema({
     type: String,
     required: true
   },
-
   email: {
     type: String,
     required: true,
     unique: true
   },
-
   password: {
     type: String,
     required: true
   },
-
   role: {
     type: String,
     enum: ["founder", "admin", "developer"],
     default: "developer"
+  },
+  mustChangePassword: {
+    type: Boolean,
+    default: false
+  }
+}, {
+  timestamps: true
+});
+
+// ✅ FIXED: Pre-save hook to hash password
+userSchema.pre("save", async function () {
+  // Only hash if password is modified (or new)
+  if (!this.isModified("password")) {
+    return;
+  }
+
+  try {
+    const salt = await bcrypt.genSalt(10);
+    this.password = await bcrypt.hash(this.password, salt);
+  } catch (error) {
+    console.log("Error hashing password:", error);
+    throw error;
   }
 });
 
-
-
-userSchema.pre("save", async function (req, res) {
-  if (!this.isModified("password")) return next();
-
-  const salt = await bcrypt.genSalt(10);
-  this.password = await bcrypt.hash(this.password, salt);
-  
-});
 
 userSchema.methods.matchPassword = async function (enteredPassword) {
   return await bcrypt.compare(enteredPassword, this.password);
