@@ -1,6 +1,7 @@
 const User = require("../models/User");
 const jwt = require("jsonwebtoken");
 const bcrypt = require("bcrypt");
+const onlineUsers = require("../utils/onlineUsers");
 
 const generateToken = (id) => {
   return jwt.sign({ id }, process.env.JWT_SECRET, {
@@ -110,7 +111,7 @@ exports.getAllUsers = async (req, res) => {
       username: u.name,
       email: u.email,
       role: u.role,
-      status: "offline",
+      status: onlineUsers.has(u._id.toString()) ? "online" : "offline",
     }));
 
     res.json(members);

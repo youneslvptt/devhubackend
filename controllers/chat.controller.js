@@ -1,7 +1,8 @@
 // controllers/chat.controller.js
+const mongoose = require("mongoose");
 const Channel = require("../models/Channel");
 const Message = require("../models/Message");
-const User = require("../models/User"); // <-- added for addMemberToChannel
+const User = require("../models/User");
 
 exports.createChannel = async (req, res) => {
   try {
@@ -71,7 +72,7 @@ exports.getChannelMessages = async (req, res) => {
   }
 };
 
-// ✅ NEW: Add a member to a channel (admin only)
+// ✅ Add a member to a channel (admin only)
 exports.addMemberToChannel = async (req, res) => {
   try {
     const { channelId, userId } = req.body; // userId can be email or MongoID
@@ -90,8 +91,11 @@ exports.addMemberToChannel = async (req, res) => {
       return res.status(404).json({ message: "Channel not found" });
     }
 
-    // Find user by ID first, then by email
-    let user = await User.findById(userId);
+    // ---- SAFE USER LOOKUP (prevents CastError) ----
+    let user = null;
+    if (mongoose.Types.ObjectId.isValid(userId)) {
+      user = await User.findById(userId);
+    }
     if (!user) {
       user = await User.findOne({ email: userId });
     }

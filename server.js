@@ -13,7 +13,7 @@ const User = require("./models/User");
 const chatRoutes = require("./routes/chat.routes");
 const protect = require("./middleware/auth.middleware");
 
-const onlineUsers = new Map();
+const onlineUsers = require("./utils/onlineUsers");
 
 dns.setServers(["1.1.1.1"]);
 
@@ -21,7 +21,7 @@ const app = express();
 const server = http.createServer(app);
 const io = socketIo(server, {
   cors: {
-    origin: "http://localhost:8080", // Your frontend URL
+    origin: "http://localhost:8080", 
     credentials: true
   }
 });
