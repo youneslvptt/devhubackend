@@ -45,14 +45,14 @@ const MessageSchema = new mongoose.Schema({
   timestamps: true
 });
 
-
+// Validation: either content or attachments must be present
 MessageSchema.pre('validate', function() {
   if (!this.content && (!this.attachments || this.attachments.length === 0)) {
     throw new Error('Message must have either content or attachments');
   }
 });
 
-
+// Indexes for faster queries
 MessageSchema.index({ channel: 1, createdAt: -1 });
 MessageSchema.index({ senderId: 1, channel: 1 });
 MessageSchema.index({ createdAt: -1 });

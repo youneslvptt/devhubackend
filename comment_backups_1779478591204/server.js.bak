@@ -1,4 +1,4 @@
-
+// server.js (updated with online user event fixes)
 require("dotenv").config();
 const express = require("express");
 const connectDB = require("./config/db");
@@ -34,14 +34,14 @@ app.use(cors({
 }));
 app.use(express.json());
 
-
+// Serve uploaded files statically (so they are accessible via /uploads/filename)
 const path = require("path");
 app.use("/uploads", express.static(path.join(__dirname, "uploads")));
 
-
+// Upload route
 app.use("/api/upload", require("./routes/upload.routes"));
 
-
+// ✅ SOCKET.IO AUTHENTICATION MIDDLEWARE
 io.use((socket, next) => {
   const token = socket.handshake.auth.token;
   
@@ -52,7 +52,7 @@ io.use((socket, next) => {
   
   try {
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
-    socket.userId = decoded.id; 
+    socket.userId = decoded.id; // string
     console.log(`Socket authenticated for user: ${socket.userId}`);
     next();
   } catch (err) {
@@ -69,23 +69,23 @@ app.get("/", (req, res) => {
   res.send("API running...");
 });
 
-
+// ✅ FIXED SOCKET.IO CONNECTION HANDLING
 io.on("connection", async (socket) => {
   console.log(`User connected: ${socket.id}, userId: ${socket.userId}`);
   
-  
+  // Get user info for online status
   try {
     const user = await User.findById(socket.userId).select("name email role");
     if (user) {
       socket.username = user.name;
       socket.userRole = user.role;
-      socket.user = user; 
+      socket.user = user; // attach full user object for later use
     }
   } catch (err) {
     console.error("Error fetching user:", err);
   }
 
-  
+  // ✅ JOIN CHANNEL - Fixed membership check
   socket.on("joinChannel", async (channelId) => {
     try {
       const channel = await Channel.findById(channelId);
@@ -94,7 +94,7 @@ io.on("connection", async (socket) => {
         return socket.emit("error", "Channel not found");
       }
       
-      
+      // 🔧 FIX: Compare string IDs instead of using .includes() (ObjectId array)
       const isMember = channel.members.some(
         (memberId) => memberId.toString() === socket.userId
       );
@@ -102,7 +102,7 @@ io.on("connection", async (socket) => {
         return socket.emit("error", "Not authorized to join this channel");
       }
       
-      
+      // Leave previous rooms except the socket's own room
       const rooms = Array.from(socket.rooms);
       rooms.forEach(room => {
         if (room !== socket.id) {
@@ -114,7 +114,7 @@ io.on("connection", async (socket) => {
       socket.join(channelId);
       socket.currentChannel = channelId;
       
-      
+      // 🔧 Emit userJoined with username object
       socket.to(channelId).emit("userJoined", {
         userId: socket.userId,
         username: socket.username
@@ -122,7 +122,7 @@ io.on("connection", async (socket) => {
       
       console.log(`User ${socket.userId} (${socket.username}) joined channel: ${channelId}`);
       
-      
+      // Send current online users in this channel
       const roomSockets = await io.in(channelId).fetchSockets();
       const onlineUsersInChannel = roomSockets.map(s => ({
         userId: s.userId,
@@ -139,7 +139,7 @@ io.on("connection", async (socket) => {
 
   socket.on("leaveChannel", (channelId) => {
     socket.leave(channelId);
-    
+    // 🔧 Emit userLeft with username object
     socket.to(channelId).emit("userLeft", {
       userId: socket.userId,
       username: socket.username
@@ -148,7 +148,7 @@ io.on("connection", async (socket) => {
     console.log(`User ${socket.userId} (${socket.username}) left channel: ${channelId}`);
   });
 
-  
+  // ✅ TYPING INDICATORS
   socket.on("typing", ({ channel, user }) => {
     if (channel) {
       socket.to(channel).emit("typing", { 
@@ -167,27 +167,27 @@ io.on("connection", async (socket) => {
     }
   });
 
-  
+  // ✅ SEND MESSAGE - Fixed to properly save and emit
   socket.on("sendMessage", async (data) => {
     try {
       const { content, attachments = [], channel } = data;
       
-      
+      // Validate channel
       if (!channel) {
         return socket.emit("error", "Channel is required");
       }
       
-      
+      // Check if user is in the channel (socket.io room)
       if (!socket.rooms.has(channel)) {
         return socket.emit("error", "You must join the channel first");
       }
       
-      
+      // Validate content or attachments
       if (!content && attachments.length === 0) {
         return socket.emit("error", "Message must have content or attachments");
       }
       
-      
+      // Create message in database
       const message = await Message.create({
         senderId: socket.userId,
         channel: channel,
@@ -195,10 +195,10 @@ io.on("connection", async (socket) => {
         attachments: attachments
       });
       
-      
+      // Populate sender info
       await message.populate("senderId", "name email");
       
-      
+      // Format message for frontend
       const messageForFrontend = {
         _id: message._id,
         content: message.content,
@@ -210,7 +210,7 @@ io.on("connection", async (socket) => {
         updatedAt: message.updatedAt
       };
       
-      
+      // Emit to all users in the channel (including sender)
       socket.to(channel).emit("receiveMessage", messageForFrontend);
       
       console.log(`Message sent in channel ${channel} by ${socket.username}`);
@@ -221,7 +221,7 @@ io.on("connection", async (socket) => {
     }
   });
 
-  
+  // ✅ MESSAGE STATUS UPDATES
   socket.on("messageDelivered", ({ messageId }) => {
     if (messageId) {
       io.emit("messageDelivered", { messageId });
@@ -246,7 +246,7 @@ io.on("connection", async (socket) => {
     }
   });
 
-  
+  // ✅ USER ONLINE STATUS (FIXED)
   socket.on("userOnline", async () => {
     try {
       if (!onlineUsers.has(socket.userId)) {
@@ -254,7 +254,7 @@ io.on("connection", async (socket) => {
       }
       onlineUsers.get(socket.userId).add(socket.id);
 
-      
+      // Build full list of online users with usernames
       const userIds = Array.from(onlineUsers.keys());
       const users = await User.find({ _id: { $in: userIds } }).select("name email role");
       const onlineList = users.map((u) => ({
@@ -268,11 +268,11 @@ io.on("connection", async (socket) => {
     }
   });
 
-  
+  // ✅ DISCONNECT
   socket.on("disconnect", () => {
     console.log(`User disconnected: ${socket.id}, userId: ${socket.userId}`);
     
-    
+    // Notify current channel that user left (with username)
     if (socket.currentChannel) {
       socket.to(socket.currentChannel).emit("userLeft", {
         userId: socket.userId,
@@ -283,12 +283,12 @@ io.on("connection", async (socket) => {
     removeSocket(socket.id);
   });
   
-  
+  // Handle socket errors
   socket.on("error", (err) => {
     console.error("Socket error:", err);
   });
 
-  
+  // Helper function to clean up online users tracking
   function removeSocket(socketId) {
     for (let [userId, sockets] of onlineUsers.entries()) {
       if (sockets.has(socketId)) {
@@ -297,7 +297,7 @@ io.on("connection", async (socket) => {
         if (sockets.size === 0) {
           onlineUsers.delete(userId);
           
-          
+          // Notify others that user went offline (optional: emit with username)
           io.emit("userOffline", { userId });
         }
         
@@ -305,7 +305,7 @@ io.on("connection", async (socket) => {
       }
     }
     
-    
+    // Re-emit updated online users list
     emitOnlineUsers();
   }
 
@@ -334,7 +334,7 @@ if (!fs.existsSync("uploads")) {
   fs.mkdirSync("uploads");
 }
 
-
+// ✅ PROTECTED ROUTE - Fixed
 app.get("/api/protected", protect, (req, res) => {
   res.json({
     message: "Access granted",

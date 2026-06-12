@@ -1,0 +1,115 @@
+const fs = require('fs');
+const path = require('path');
+
+const ROOT = process.cwd();
+const BACKUP_DIR = path.join(ROOT, 'comment_backups_' + Date.now());
+const skipDirs = new Set(['node_modules', '.git', BACKUP_DIR.split(path.sep).pop()]);
+const textFileExts = {
+  js: 'js', jsx: 'js', ts: 'js', tsx: 'js', json: 'json', md: 'html', html: 'html', htm: 'html', css: 'css', scss: 'css', yml: 'sh', yaml: 'sh', env: 'sh', sh: 'sh', ps1: 'sh'
+};
+
+function ensureDir(dir) {
+  if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+}
+
+function walk(dir, cb) {
+  const entries = fs.readdirSync(dir, { withFileTypes: true });
+  for (const e of entries) {
+    if (skipDirs.has(e.name)) continue;
+    const full = path.join(dir, e.name);
+    if (e.isDirectory()) walk(full, cb);
+    else cb(full);
+  }
+}
+
+function stripJsComments(src) {
+  let out = '';
+  let i = 0;
+  const len = src.length;
+  let inSingle = false, inDouble = false, inTemplate = false;
+  let inBlock = false, inLine = false;
+  let prev = '';
+  while (i < len) {
+    const ch = src[i];
+    const next = src[i+1];
+    if (inBlock) {
+      if (ch === '*' && next === '/') { inBlock = false; i += 2; continue; }
+      i++; continue;
+    }
+    if (inLine) {
+      if (ch === '\n') { inLine = false; out += ch; i++; continue; }
+      i++; continue;
+    }
+    if (!inSingle && !inDouble && !inTemplate) {
+      if (ch === '/' && next === '*') { inBlock = true; i += 2; continue; }
+      if (ch === '/' && next === '/') { inLine = true; i += 2; continue; }
+    }
+    // handle strings
+    out += ch;
+    if (!inSingle && !inDouble && !inTemplate) {
+      if (ch === "'") inSingle = true;
+      else if (ch === '"') inDouble = true;
+      else if (ch === '`') inTemplate = true;
+    } else if (inSingle) {
+      if (ch === "'" && prev !== '\\') inSingle = false;
+    } else if (inDouble) {
+      if (ch === '"' && prev !== '\\') inDouble = false;
+    } else if (inTemplate) {
+      if (ch === '`' && prev !== '\\') inTemplate = false;
+    }
+    prev = ch;
+    i++;
+  }
+  return out;
+}
+
+function stripHtmlComments(src) {
+  return src.replace(/<!--([\s\S]*?)-->/g, '');
+}
+
+function stripHashCommentsByLine(src, keepShebang = false) {
+  const lines = src.split(/\r?\n/);
+  for (let i = 0; i < lines.length; i++) {
+    const trimmed = lines[i].trim();
+    if (keepShebang && i === 0 && trimmed.startsWith('#!')) continue;
+    if (trimmed.startsWith('#')) lines[i] = '';
+  }
+  return lines.join('\n');
+}
+
+ensureDir(BACKUP_DIR);
+const modified = [];
+walk(ROOT, (file) => {
+  const rel = path.relative(ROOT, file);
+  if (rel.startsWith(path.basename(BACKUP_DIR))) return;
+  const ext = path.extname(file).replace('.', '').toLowerCase();
+  if (!Object.prototype.hasOwnProperty.call(textFileExts, ext)) return;
+  try {
+    const src = fs.readFileSync(file, 'utf8');
+    let out = src;
+    const kind = textFileExts[ext];
+    if (kind === 'js') out = stripJsComments(src);
+    else if (kind === 'html') out = stripHtmlComments(src);
+    else if (kind === 'css') out = src.replace(/\/\*([\s\S]*?)\*\//g, '');
+    else if (kind === 'sh') out = stripHashCommentsByLine(src, true);
+    else if (kind === 'json') out = src; // don't modify json
+    else out = stripHtmlComments(src);
+
+    if (out !== src) {
+      const backupPath = path.join(BACKUP_DIR, rel + '.bak');
+      ensureDir(path.dirname(backupPath));
+      fs.writeFileSync(backupPath, src, 'utf8');
+      fs.writeFileSync(file, out, 'utf8');
+      modified.push(rel);
+    }
+  } catch (err) {
+    console.error('failed', file, err.message);
+  }
+});
+
+console.log('Backups saved to', BACKUP_DIR);
+if (modified.length === 0) console.log('No files modified');
+else {
+  console.log('Modified files:');
+  for (const f of modified) console.log('-', f);
+}

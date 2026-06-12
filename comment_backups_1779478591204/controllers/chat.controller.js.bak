@@ -1,4 +1,4 @@
-
+// controllers/chat.controller.js
 const mongoose = require("mongoose");
 const Channel = require("../models/Channel");
 const Message = require("../models/Message");
@@ -23,7 +23,7 @@ exports.createChannel = async (req, res) => {
 exports.getChannels = async (req, res) => {
   console.log("Fetching channels for user:", req.user.id);
   try {
-    
+    // Return all channels (public discovery)
     const channels = await Channel.find().populate("members", "name email");
     res.json(channels);
   } catch (err) {
@@ -31,7 +31,7 @@ exports.getChannels = async (req, res) => {
   }
 };
 
-
+// ✅ Get messages for a specific channel
 exports.getChannelMessages = async (req, res) => {
   try {
     const { channelId } = req.params;
@@ -41,7 +41,7 @@ exports.getChannelMessages = async (req, res) => {
       return res.status(404).json({ message: "Channel not found" });
     }
 
-    
+    // Check if user is a member of the channel (using string comparison)
     const isMember = channel.members.some(
       (memberId) => memberId.toString() === req.user.id
     );
@@ -72,16 +72,16 @@ exports.getChannelMessages = async (req, res) => {
   }
 };
 
-
+// ✅ Add a member to a channel (admin only)
 exports.addMemberToChannel = async (req, res) => {
   try {
-    const { channelId, userId } = req.body; 
+    const { channelId, userId } = req.body; // userId can be email or MongoID
 
     if (!channelId || !userId) {
       return res.status(400).json({ message: "channelId and userId are required" });
     }
 
-    
+    // Only admins/founders can add members
     if (req.user.role !== "admin" && req.user.role !== "founder") {
       return res.status(403).json({ message: "Not authorized" });
     }
@@ -91,7 +91,7 @@ exports.addMemberToChannel = async (req, res) => {
       return res.status(404).json({ message: "Channel not found" });
     }
 
-    
+    // ---- SAFE USER LOOKUP (prevents CastError) ----
     let user = null;
     if (mongoose.Types.ObjectId.isValid(userId)) {
       user = await User.findById(userId);
@@ -103,7 +103,7 @@ exports.addMemberToChannel = async (req, res) => {
       return res.status(404).json({ message: "User not found" });
     }
 
-    
+    // Check if already a member
     const isAlreadyMember = channel.members.some(
       (memberId) => memberId.toString() === user._id.toString()
     );
